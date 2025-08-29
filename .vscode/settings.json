@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "bpf_helpers.h": "c",
+        "stdio.h": "c",
+        "stdlib.h": "c",
+        "ptrace.h": "c"
+    }
+}
