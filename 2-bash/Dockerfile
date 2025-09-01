@@ -1,5 +1,5 @@
 # Use Ubuntu 22.04 as base image
-FROM ubuntu:22.04
+FROM ubuntu:24.04
 
 # Set the working directory in the container
 WORKDIR /app
@@ -16,19 +16,22 @@ RUN apt update && apt install -y \
     iproute2 \
     linux-tools-common \
     gcc-multilib \
-    zlib1g-dev
+    zlib1g-dev \
+    libbpf1
 
-# Copy the source files into the container
-COPY hbash.bpf.c /app/hbash.bpf.c
-COPY loader.c /app/loader.c
+COPY hbash.bpf.o /app/hbash.bpf.o
+COPY loader /app/loader
+# # Copy the source files into the container
+# COPY hbash.bpf.c /app/hbash.bpf.c
+# COPY loader.c /app/loader.c
 
-# Run the build commands
-# RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o -g -O2 -target bpf -D__BPF_TRACING__ \
-#     && gcc loader.c -o loader -lbpf -lelf -lz
-RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o \
-    -I/usr/include/x86_64-linux-gnu -I/usr/src/linux-headers-$(uname -r)/include \
-    -D__BPF_TRACING__
-RUN gcc loader.c -o loader -lbpf -lelf -lz
+# # Run the build commands
+# # RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o -g -O2 -target bpf -D__BPF_TRACING__ \
+# #     && gcc loader.c -o loader -lbpf -lelf -lz
+# RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o \
+#     -I/usr/include/x86_64-linux-gnu -I/usr/src/linux-headers-$(uname -r)/include \
+#     -D__BPF_TRACING__
+# RUN gcc loader.c -o loader -lbpf -lelf -lz
 # Set the default command
 CMD ["/bin/bash"]
 

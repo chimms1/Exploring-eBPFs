@@ -25,6 +25,12 @@ clang -O2 -target bpf -c trace.bpf.c -o trace.bpf.o
 gcc loader.c -o loader -lbpf -lelf -lz
 
 
+clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o -I/usr/include/x86_64-linux-gnu -I/usr/src/linux-headers-$(uname -r)/include -D__BPF_TRACING__
+
+clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o  -D__BPF_TRACING__
+
+gcc loader.c -o loader -lbpf -lelf -lz
+
 sudo cat /sys/kernel/debug/tracing/trace_pipe
 
 With Dockerfile:

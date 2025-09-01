@@ -76,7 +76,9 @@ int tp_exit(struct bpf_raw_tracepoint_args *ctx)
 
     
     // Get the syscall number from the regs struct
-    long syscall_nr = BPF_CORE_READ(regs, orig_rax);
+    // long syscall_nr = BPF_CORE_READ(regs, orig_rax);
+    unsigned long syscall_nr;
+    bpf_probe_read(&syscall_nr, sizeof(syscall_nr) , &regs->orig_rax);
 
     // Check for openat and bash with root privileges
     // if (syscall_nr == __NR_openat && is_bash_with_root(ctx)) {
@@ -86,7 +88,7 @@ int tp_exit(struct bpf_raw_tracepoint_args *ctx)
         // long ret_fd = ctx->args[0];
         int fd = (int)ret;
 
-        bpf_printk("from tp_exit=> Found bash in root, file descriptor=> %ld syscall_nr=> %d\n", ret,syscall_nr);
+        bpf_printk("from tp_exit=> Found bash in root, file descriptor=> %lu syscall_nr=> %d\n", ret,syscall_nr);
 
         // Ensure the file descriptor is valid (>= 0)
         if (fd >= 0) 
