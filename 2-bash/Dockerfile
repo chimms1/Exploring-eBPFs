@@ -23,9 +23,12 @@ COPY hbash.bpf.c /app/hbash.bpf.c
 COPY loader.c /app/loader.c
 
 # Run the build commands
-RUN clang -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o \
-    && gcc loader.c -o loader -lbpf -lelf -lz
-
+# RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o -g -O2 -target bpf -D__BPF_TRACING__ \
+#     && gcc loader.c -o loader -lbpf -lelf -lz
+RUN clang -g -O2 -target bpf -D__TARGET_ARCH_x86 -c hbash.bpf.c -o hbash.bpf.o \
+    -I/usr/include/x86_64-linux-gnu -I/usr/src/linux-headers-$(uname -r)/include \
+    -D__BPF_TRACING__
+RUN gcc loader.c -o loader -lbpf -lelf -lz
 # Set the default command
 CMD ["/bin/bash"]
 

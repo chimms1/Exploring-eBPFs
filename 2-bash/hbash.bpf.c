@@ -1,4 +1,4 @@
-// trace.bpf.c
+// hbash.bpf.c
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
@@ -8,10 +8,23 @@
 #include <stdint.h>
 
 #include <linux/ptrace.h>
+#include <asm/unistd_64.h>
+
+
+// #include <linux/syscalls.h>
 
 #define TASK_COMM_LEN 16
 
 char LICENSE[] SEC("license") = "GPL";
+
+
+// The key will be 0, and the value will be the file descriptor
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, int);
+    __type(value, int);
+} fd_map SEC(".maps");
 
 int is_bash_with_root(struct pt_regs *ctx)
 {
@@ -40,23 +53,49 @@ int is_bash_with_root(struct pt_regs *ctx)
     return 0;
 }
 
-void save_target_bash_fd(struct pt_regs *ctx) 
+void save_target_bash_fd(long ret_fd) 
 {
-    int fd = PT_REGS_RC(ctx);
-
-    bpf_printk("fd is %d\n",fd);
+    // Store the file descriptor in the map
+    int key = 0;
+    long ret = bpf_map_update_elem(&fd_map, &key, &ret_fd, BPF_ANY);
+    
+    if (ret != 0) 
+    {
+        bpf_printk("Failed to update map: %d\n", ret);
+    }
 }
 
 
 SEC("raw_tracepoint/sys_exit")
 int tp_exit(struct bpf_raw_tracepoint_args *ctx)
 {
-    
-    if(is_bash_with_root(ctx))
-    {
-        bpf_printk("Found bash in root");
-    }
+    // long syscall_nr = ctx->args[1];
 
+    struct pt_regs *regs = (struct pt_regs *)ctx->args[0];
+    long ret = (long)ctx->args[1];
+
+    
+    // Get the syscall number from the regs struct
+    long syscall_nr = BPF_CORE_READ(regs, orig_rax);
+
+    // Check for openat and bash with root privileges
+    // if (syscall_nr == __NR_openat && is_bash_with_root(ctx)) {
+
+    if (is_bash_with_root(ctx)) {
+        
+        // long ret_fd = ctx->args[0];
+        int fd = (int)ret;
+
+        bpf_printk("from tp_exit=> Found bash in root, file descriptor=> %ld syscall_nr=> %d\n", ret,syscall_nr);
+
+        // Ensure the file descriptor is valid (>= 0)
+        if (fd >= 0) 
+        {
+
+            save_target_bash_fd(fd);
+        }
+    }
+    
     return 0;
 }
 

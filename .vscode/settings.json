@@ -3,6 +3,8 @@
         "bpf_helpers.h": "c",
         "stdio.h": "c",
         "stdlib.h": "c",
-        "ptrace.h": "c"
+        "ptrace.h": "c",
+        "sched.h": "c",
+        "bpf_core_read.h": "c"
     }
 }
