@@ -5,6 +5,7 @@
         "stdlib.h": "c",
         "ptrace.h": "c",
         "sched.h": "c",
-        "bpf_core_read.h": "c"
+        "bpf_core_read.h": "c",
+        "cstdint": "c"
     }
 }

