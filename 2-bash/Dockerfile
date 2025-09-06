@@ -19,8 +19,8 @@ RUN apt update && apt install -y \
     zlib1g-dev \
     libbpf1
 
-COPY hbash.bpf.o /app/hbash.bpf.o
-COPY loader /app/loader
+COPY hbashmagnumopus.bpf.o /app/hbashmagnumopus.bpf.o
+COPY loadermagnumopus /app/loadermagnumopus
 # # Copy the source files into the container
 # COPY hbash.bpf.c /app/hbash.bpf.c
 # COPY loader.c /app/loader.c

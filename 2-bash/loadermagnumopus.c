@@ -15,21 +15,21 @@ void sig_handler(int sig)
 int main()
 {
     struct bpf_object *obj;
-    struct bpf_program *tp_prog, *kret_prog;
-    struct bpf_link *tp_link = NULL, *kret_link = NULL;
+    struct bpf_program *raw_tracepoint_prog;
+    struct bpf_link *link = NULL;
     int err;
 
     signal(SIGINT, sig_handler);
     signal(SIGTERM, sig_handler);
 
-    // Open the compiled BPF object (update name if needed)
-    obj = bpf_object__open_file("hbash.bpf.o", NULL);
+    // Open the compiled BPF object
+    obj = bpf_object__open_file("hbashmagnumopus.bpf.o", NULL);
     if (libbpf_get_error(obj)) {
         fprintf(stderr, "Failed to open BPF object: %ld\n", libbpf_get_error(obj));
         return 1;
     }
 
-    // Load BPF programs into the kernel
+    // Load BPF program into the kernel
     err = bpf_object__load(obj);
     if (err) {
         fprintf(stderr, "Failed to load BPF object: %d\n", err);
@@ -37,46 +37,30 @@ int main()
         return 1;
     }
 
-    // Attach raw tracepoint: tp_exit
-    tp_prog = bpf_object__find_program_by_name(obj, "tp_exit");
-    if (!tp_prog) {
-        fprintf(stderr, "Failed to find program tp_exit\n");
+    // Find and attach the raw tracepoint program
+    raw_tracepoint_prog = bpf_object__find_program_by_name(obj, "trace_execve");
+    if (!raw_tracepoint_prog) {
+        fprintf(stderr, "Failed to find program trace_execve\n");
         bpf_object__close(obj);
         return 1;
     }
 
-    tp_link = bpf_program__attach(tp_prog);
-    if (libbpf_get_error(tp_link)) {
-        fprintf(stderr, "Failed to attach tp_exit: %ld\n", libbpf_get_error(tp_link));
-        tp_link = NULL;
+    link = bpf_program__attach(raw_tracepoint_prog);
+    if (libbpf_get_error(link)) {
+        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(link));
+        link = NULL;
     } else {
-        printf("Attached raw tracepoint: tp_exit\n");
+        printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter\n");
     }
 
-    // Attach kretprobe: modify_read_size
-    kret_prog = bpf_object__find_program_by_name(obj, "modify_read_size");
-    if (!kret_prog) {
-        fprintf(stderr, "Failed to find program modify_read_size\n");
-    } else {
-        kret_link = bpf_program__attach(kret_prog);
-        if (libbpf_get_error(kret_link)) {
-            fprintf(stderr, "Failed to attach modify_read_size: %ld\n", libbpf_get_error(kret_link));
-            kret_link = NULL;
-        } else {
-            printf("Attached kretprobe: modify_read_size\n");
-        }
-    }
-
-    printf("eBPF programs loaded. Press Ctrl+C to exit.\n");
+    printf("eBPF program loaded. Press Ctrl+C to exit.\n");
 
     while (!exiting)
         sleep(1);
 
     // Clean up
-    if (tp_link)
-        bpf_link__destroy(tp_link);
-    if (kret_link)
-        bpf_link__destroy(kret_link);
+    if (link)
+        bpf_link__destroy(link);
     bpf_object__close(obj);
 
     printf("Unloaded eBPF programs.\n");

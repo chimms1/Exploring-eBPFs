@@ -6,6 +6,8 @@
         "ptrace.h": "c",
         "sched.h": "c",
         "bpf_core_read.h": "c",
-        "cstdint": "c"
+        "cstdint": "c",
+        "bpf_helper_defs.h": "c",
+        "bpf_common.h": "c"
     }
 }
