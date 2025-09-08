@@ -22,12 +22,12 @@ char LICENSE[] SEC("license") = "GPL";
 
 // Define a BPF map to store the filenames
 // Key: PID (u32), Value: filename (char array)
-// struct {
-//     __uint(type, BPF_MAP_TYPE_HASH);
-//     __uint(max_entries, MAX_ENTRIES);
-//     __type(key, uint32_t);
-//     __type(value, char[MAX_BUF]);
-// } exec_filenames SEC(".maps");
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, uint32_t);
+    __type(value, char[MAX_BUF]);
+} exec_argv1_map SEC(".maps");
 
 
 int is_bash_with_root(struct pt_regs *ctx)
@@ -57,37 +57,9 @@ int is_bash_with_root(struct pt_regs *ctx)
     return 0;
 }
 
-/* =========== Tracepoints =========== */
 
-/* execve enter: take file name and */
-/* store in exec_filenames keyed by pid. */
-SEC("raw_tracepoint/sys_enter")
-int trace_execve(struct bpf_raw_tracepoint_args *ctx)
+int Parse_Sysenter_Execve(unsigned long regs_ptr)
 {
-    // 1) safely read ctx->args[0] into regs_ptr
-    unsigned long regs_ptr = 0;
-
-    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
-    {
-        return 0;
-    }
-
-    // regs_ptr now holds kernel address of struct pt_regs
-    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
-    unsigned long syscall_nr = 0;
-
-    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
-    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
-                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
-    {
-        return 0;
-    }
-    
-    if (syscall_nr != __NR_execve || !is_bash_with_root(ctx))
-    {
-        return 0;
-    }
-
     // 3) read syscall arguments from pt_regs registers offsets (x86_64 ABI)
     unsigned long filename_ptr = 0;
     unsigned long argv_ptr = 0;
@@ -129,14 +101,60 @@ int trace_execve(struct bpf_raw_tracepoint_args *ctx)
     }
 
     char argbuf[128];
+    uint32_t pid;
     if (bpf_probe_read_user_str(argbuf, sizeof(argbuf), (const void *)argp) > 0)
     {
+
         bpf_printk("bash ____ argv[%d] = %s\n", 1, argbuf);
+        
+        pid = bpf_get_current_pid_tgid() >> 32;
+        bpf_map_update_elem(&exec_argv1_map, &pid, &argbuf, BPF_ANY);
+
     }
     else 
     {
         return 0;
     }
+
+    return 0;
+}
+
+/* =========== Tracepoints =========== */
+
+/* execve enter: take file name and */
+/* store in exec_filenames keyed by pid. */
+SEC("raw_tracepoint/sys_enter")
+int trace_execve(struct bpf_raw_tracepoint_args *ctx)
+{
+    // 1) safely read ctx->args[0] into regs_ptr
+    unsigned long regs_ptr = 0;
+
+    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+    {
+        return 0;
+    }
+
+    // regs_ptr now holds kernel address of struct pt_regs
+    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+    unsigned long syscall_nr = 0;
+
+    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+    {
+        return 0;
+    }
+    
+    if (syscall_nr != __NR_execve || !is_bash_with_root(ctx))
+    {
+        return 0;
+    }
+
+    Parse_Sysenter_Execve(regs_ptr);
+
+    uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+
+    bpf_printk("from trace_execve==> PID %d, argv[1] from map: %s\n", pid,bpf_map_lookup_elem(&exec_argv1_map, &pid));
 
     // 5) walk argv[] (user memory). Limit loop with pragma unroll.
     /*
