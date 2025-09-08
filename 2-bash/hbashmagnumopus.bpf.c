@@ -57,7 +57,6 @@ int is_bash_with_root(struct pt_regs *ctx)
     return 0;
 }
 
-
 int Parse_Sysenter_Execve(unsigned long regs_ptr)
 {
     // 3) read syscall arguments from pt_regs registers offsets (x86_64 ABI)
@@ -116,6 +115,41 @@ int Parse_Sysenter_Execve(unsigned long regs_ptr)
         return 0;
     }
 
+    // 5) walk argv[] (user memory). Limit loop with pragma unroll.
+    /*
+    #pragma unroll
+    for (int i = 0; i < 2; i++)
+    {
+        unsigned long argp = 0;
+        // argv_ptr points to userspace array of pointers. Read address of argv[i] from userspace.
+        // Note: bpf_probe_read_user reads from userspace addresses.
+        unsigned long user_ptr = argv_ptr + i * sizeof(unsigned long);
+        if (argv_ptr == 0)
+        {
+            break;
+        }
+
+        if (bpf_probe_read_user(&argp, sizeof(argp), (void *)user_ptr) < 0)
+        {
+            break;
+        }
+        if (argp == 0)
+        {
+            break;
+        }
+
+        char argbuf[128];
+        if (bpf_probe_read_user_str(argbuf, sizeof(argbuf), (const void *)argp) > 0)
+        {
+            bpf_printk("argv[%d] = %s\n", i, argbuf);
+        }
+        else 
+        {
+            break;
+        }
+    }
+    */
+
     return 0;
 }
 
@@ -156,47 +190,68 @@ int trace_execve(struct bpf_raw_tracepoint_args *ctx)
 
     bpf_printk("from trace_execve==> PID %d, argv[1] from map: %s\n", pid,bpf_map_lookup_elem(&exec_argv1_map, &pid));
 
-    // 5) walk argv[] (user memory). Limit loop with pragma unroll.
-    /*
-    #pragma unroll
-    for (int i = 0; i < 2; i++)
-    {
-        unsigned long argp = 0;
-        // argv_ptr points to userspace array of pointers. Read address of argv[i] from userspace.
-        // Note: bpf_probe_read_user reads from userspace addresses.
-        unsigned long user_ptr = argv_ptr + i * sizeof(unsigned long);
-        if (argv_ptr == 0)
-        {
-            break;
-        }
-
-        if (bpf_probe_read_user(&argp, sizeof(argp), (void *)user_ptr) < 0)
-        {
-            break;
-        }
-        if (argp == 0)
-        {
-            break;
-        }
-
-        char argbuf[128];
-        if (bpf_probe_read_user_str(argbuf, sizeof(argbuf), (const void *)argp) > 0)
-        {
-            bpf_printk("argv[%d] = %s\n", i, argbuf);
-        }
-        else 
-        {
-            break;
-        }
-    }
-    */
-
     return 0;
 }
 
+// SEC("raw_tracepoint/sys_exit")
+// int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
+// {
+//     // 1) safely read ctx->args[0] into regs_ptr
+//     unsigned long regs_ptr = 0;
 
+//     if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+//     {
+//         return 0;
+//     }
 
+//     // regs_ptr now holds kernel address of struct pt_regs
+//     // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+//     unsigned long syscall_nr = 0;
 
+//     // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+//     if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+//                     (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+//     {
+//         return 0;
+//     }
+    
+//     if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
+//     {
+//         return 0;
+//     }
+
+//     return 0;
+// }
+
+// SEC("raw_tracepoint/sys_exit")
+// int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
+// {
+//     // 1) safely read ctx->args[0] into regs_ptr
+//     unsigned long regs_ptr = 0;
+
+//     if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+//     {
+//         return 0;
+//     }
+
+//     // regs_ptr now holds kernel address of struct pt_regs
+//     // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+//     unsigned long syscall_nr = 0;
+
+//     // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+//     if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+//                     (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+//     {
+//         return 0;
+//     }
+    
+//     if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
+//     {
+//         return 0;
+//     }
+
+//     return 0;
+// }
 
 
 

@@ -15,8 +15,8 @@ void sig_handler(int sig)
 int main()
 {
     struct bpf_object *obj;
-    struct bpf_program *raw_tracepoint_prog;
-    struct bpf_link *link = NULL;
+    struct bpf_program *trace_execve_prog;
+    struct bpf_link *trace_execve_link = NULL;
     int err;
 
     signal(SIGINT, sig_handler);
@@ -38,17 +38,17 @@ int main()
     }
 
     // Find and attach the raw tracepoint program
-    raw_tracepoint_prog = bpf_object__find_program_by_name(obj, "trace_execve");
-    if (!raw_tracepoint_prog) {
+    trace_execve_prog = bpf_object__find_program_by_name(obj, "trace_execve");
+    if (!trace_execve_prog) {
         fprintf(stderr, "Failed to find program trace_execve\n");
         bpf_object__close(obj);
         return 1;
     }
 
-    link = bpf_program__attach(raw_tracepoint_prog);
-    if (libbpf_get_error(link)) {
-        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(link));
-        link = NULL;
+    trace_execve_link = bpf_program__attach(trace_execve_prog);
+    if (libbpf_get_error(trace_execve_link)) {
+        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(trace_execve_link));
+        trace_execve_link = NULL;
     } else {
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter\n");
     }
@@ -59,8 +59,8 @@ int main()
         sleep(1);
 
     // Clean up
-    if (link)
-        bpf_link__destroy(link);
+    if (trace_execve_link)
+        bpf_link__destroy(trace_execve_link);
     bpf_object__close(obj);
 
     printf("Unloaded eBPF programs.\n");
