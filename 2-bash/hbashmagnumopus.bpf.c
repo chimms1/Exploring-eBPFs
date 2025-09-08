@@ -1,21 +1,17 @@
-// hbash.bpf.c
-// Tracks execve argv[1], watches openat for matching filename, records returned fd on sys_exit_openat,
+// hbashmagnumopus.bpf.c 
+// Tracks execve argv[1], watches openat for matching filename, records returned fd on sys_exit_openat, 
 // and when read(fd) is called, prints content read from that fd (bounded).
 #include <linux/bpf.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_core_read.h>
-#include <linux/sched.h>
 
+#include <stddef.h>
 #include <stdint.h>
 
-#include <linux/ptrace.h>
+// for offsetof(struct pt_regs, ...)
+#include <linux/ptrace.h>   // asm/ptrace.h
 #include <asm/unistd_64.h>
-
-// #include <linux/trace.h>
-// #include <linux/trace_events.h>
-#include <linux/errno.h>
-#include <linux/kernel.h>
 
 #define MAX_BUF 128
 #define MAX_ENTRIES 10240
@@ -26,12 +22,13 @@ char LICENSE[] SEC("license") = "GPL";
 
 // Define a BPF map to store the filenames
 // Key: PID (u32), Value: filename (char array)
-struct {
-    __uint(type, BPF_MAP_TYPE_HASH);
-    __uint(max_entries, MAX_ENTRIES);
-    __type(key, uint32_t);
-    __type(value, char[MAX_BUF]);
-} exec_filenames SEC(".maps");
+// struct {
+//     __uint(type, BPF_MAP_TYPE_HASH);
+//     __uint(max_entries, MAX_ENTRIES);
+//     __type(key, uint32_t);
+//     __type(value, char[MAX_BUF]);
+// } exec_filenames SEC(".maps");
+
 
 int is_bash_with_root(struct pt_regs *ctx)
 {
@@ -67,33 +64,114 @@ int is_bash_with_root(struct pt_regs *ctx)
 SEC("raw_tracepoint/sys_enter")
 int trace_execve(struct bpf_raw_tracepoint_args *ctx)
 {
-    struct pt_regs *regs = (struct pt_regs *)ctx->args[0];
+    // 1) safely read ctx->args[0] into regs_ptr
+    unsigned long regs_ptr = 0;
 
-    unsigned long syscall_nr;   // syscall no.
-    bpf_probe_read(&syscall_nr, sizeof(syscall_nr), &regs->orig_rax);
-    
-    // If syscall is execve and process is bash with root uid
-    if (syscall_nr == __NR_execve && is_bash_with_root(ctx)) 
+    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
     {
-        // get filename here store it in a map and print it
-
-        // const char *filename_ptr = (const char *)regs->rdi;
-        // char filename[MAX_BUF];
-
-        // bpf_probe_read_user_str(&filename, sizeof(filename), filename_ptr);
-
-        // char *filename = NULL;
-        char filename[MAX_BUF];
-        bpf_probe_read_str(&filename , sizeof(filename) , &regs->rdi);
-
-        uint32_t pid = bpf_get_current_pid_tgid() >> 32;
-
-        // Store the filename in the BPF map
-        bpf_map_update_elem(&exec_filenames, &pid, &filename, BPF_ANY);
-
-        bpf_printk("from trace_execve==> PID %d, Filename: %s from map: %s\n", pid, filename,bpf_map_lookup_elem(&exec_filenames, &pid));
-
+        return 0;
     }
+
+    // regs_ptr now holds kernel address of struct pt_regs
+    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+    unsigned long syscall_nr = 0;
+
+    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+    {
+        return 0;
+    }
+    
+    if (syscall_nr != __NR_execve || !is_bash_with_root(ctx))
+    {
+        return 0;
+    }
+
+    // 3) read syscall arguments from pt_regs registers offsets (x86_64 ABI)
+    unsigned long filename_ptr = 0;
+    unsigned long argv_ptr = 0;
+
+    // rdi is first arg, rsi is second arg on x86_64
+    if (bpf_probe_read(&filename_ptr, sizeof(filename_ptr),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rdi))) < 0)
+    {
+        return 0;
+    }
+
+    if (bpf_probe_read(&argv_ptr, sizeof(argv_ptr),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rsi))) < 0)
+    {
+        return 0;
+    }
+
+    // 4) read filename string from userspace
+    char fname[128];
+    if (filename_ptr && bpf_probe_read_user_str(fname, sizeof(fname), (const void *)filename_ptr) > 0)
+    {
+        bpf_printk("execve filename: %s\n", fname);
+    }
+
+    // Directly take i=1 instead of unrolling
+    unsigned long argp = 0;
+    unsigned long user_ptr = argv_ptr + 1 * sizeof(unsigned long);
+    if (argv_ptr == 0)
+    {
+        return 0;
+    }
+    if (bpf_probe_read_user(&argp, sizeof(argp), (void *)user_ptr) < 0)
+    {
+        return 0;
+    }
+    if (argp == 0)
+    {
+        return 0;
+    }
+
+    char argbuf[128];
+    if (bpf_probe_read_user_str(argbuf, sizeof(argbuf), (const void *)argp) > 0)
+    {
+        bpf_printk("bash ____ argv[%d] = %s\n", 1, argbuf);
+    }
+    else 
+    {
+        return 0;
+    }
+
+    // 5) walk argv[] (user memory). Limit loop with pragma unroll.
+    /*
+    #pragma unroll
+    for (int i = 0; i < 2; i++)
+    {
+        unsigned long argp = 0;
+        // argv_ptr points to userspace array of pointers. Read address of argv[i] from userspace.
+        // Note: bpf_probe_read_user reads from userspace addresses.
+        unsigned long user_ptr = argv_ptr + i * sizeof(unsigned long);
+        if (argv_ptr == 0)
+        {
+            break;
+        }
+
+        if (bpf_probe_read_user(&argp, sizeof(argp), (void *)user_ptr) < 0)
+        {
+            break;
+        }
+        if (argp == 0)
+        {
+            break;
+        }
+
+        char argbuf[128];
+        if (bpf_probe_read_user_str(argbuf, sizeof(argbuf), (const void *)argp) > 0)
+        {
+            bpf_printk("argv[%d] = %s\n", i, argbuf);
+        }
+        else 
+        {
+            break;
+        }
+    }
+    */
 
     return 0;
 }
