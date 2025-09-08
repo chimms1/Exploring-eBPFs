@@ -193,65 +193,65 @@ int trace_execve(struct bpf_raw_tracepoint_args *ctx)
     return 0;
 }
 
-// SEC("raw_tracepoint/sys_exit")
-// int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
-// {
-//     // 1) safely read ctx->args[0] into regs_ptr
-//     unsigned long regs_ptr = 0;
+SEC("raw_tracepoint/sys_enter")
+int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
+{
+    // 1) safely read ctx->args[0] into regs_ptr
+    unsigned long regs_ptr = 0;
 
-//     if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
-//     {
-//         return 0;
-//     }
+    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+    {
+        return 0;
+    }
 
-//     // regs_ptr now holds kernel address of struct pt_regs
-//     // 2) read syscall number from pt_regs->orig_rax (kernel memory)
-//     unsigned long syscall_nr = 0;
+    // regs_ptr now holds kernel address of struct pt_regs
+    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+    unsigned long syscall_nr = 0;
 
-//     // Use offsetof to locate orig_rax inside pt_regs (x86_64)
-//     if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
-//                     (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
-//     {
-//         return 0;
-//     }
+    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+    {
+        return 0;
+    }
     
-//     if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
-//     {
-//         return 0;
-//     }
+    if (syscall_nr != __NR_openat || !is_bash_with_root(ctx))
+    {
+        return 0;
+    }
+    bpf_printk("Hello from tp_openat_enter\n");
+    return 0;
+}
 
-//     return 0;
-// }
+SEC("raw_tracepoint/sys_exit")
+int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
+{
+    // 1) safely read ctx->args[0] into regs_ptr
+    unsigned long regs_ptr = 0;
 
-// SEC("raw_tracepoint/sys_exit")
-// int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
-// {
-//     // 1) safely read ctx->args[0] into regs_ptr
-//     unsigned long regs_ptr = 0;
+    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+    {
+        return 0;
+    }
 
-//     if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
-//     {
-//         return 0;
-//     }
+    // regs_ptr now holds kernel address of struct pt_regs
+    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+    unsigned long syscall_nr = 0;
 
-//     // regs_ptr now holds kernel address of struct pt_regs
-//     // 2) read syscall number from pt_regs->orig_rax (kernel memory)
-//     unsigned long syscall_nr = 0;
-
-//     // Use offsetof to locate orig_rax inside pt_regs (x86_64)
-//     if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
-//                     (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
-//     {
-//         return 0;
-//     }
+    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+    {
+        return 0;
+    }
     
-//     if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
-//     {
-//         return 0;
-//     }
-
-//     return 0;
-// }
+    if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
+    {
+        return 0;
+    }
+    bpf_printk(" Hello from tp_read_exit\n");
+    return 0;
+}
 
 
 
