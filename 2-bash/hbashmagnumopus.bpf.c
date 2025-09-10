@@ -292,7 +292,45 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
     {
         return 0;
     }
-    bpf_printk(" Hello from tp_read_exit\n");
+    // bpf_printk(" Hello from tp_read_exit\n");
+
+    int ret = 0;
+    if (bpf_probe_read(&ret, sizeof(ret),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rax))) < 0)
+    {
+        return 0;
+    }
+
+    if (ret <= 0) 
+        return 0;  // nothing read
+
+    int fd = 0;
+    if (bpf_probe_read(&fd, sizeof(fd),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rdi))) < 0)
+        return 0;
+
+    uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+    // struct fd_key key = {.pid = pid, .fd = fd};
+
+    char *pathname = bpf_map_lookup_elem(&openat_path_map, &pid);
+    if (!pathname)
+        return 0;
+
+    // Now grab buffer pointer (2nd arg of read = rsi)
+    unsigned long buf_ptr = 0;
+    if (bpf_probe_read(&buf_ptr, sizeof(buf_ptr),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rsi))) < 0)
+        return 0;
+
+    char data[128];
+    int copy = ret < sizeof(data) ? ret : sizeof(data)-1;
+    if (bpf_probe_read_user(data, copy, (void *)buf_ptr) < 0)
+        return 0;
+    data[copy] = 0;
+
+    bpf_printk("read: pid=%d fd=%d path=%s data=%s ret=%d\n",
+               pid, fd, pathname, data, ret);
+
     return 0;
 }
 
