@@ -29,6 +29,13 @@ struct {
     __type(value, char[MAX_BUF]);
 } exec_argv1_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, MAX_ENTRIES);
+    __type(key, uint32_t);
+    __type(value, char[MAX_BUF]);
+} openat_path_map SEC(".maps");
+
 
 int is_bash_with_root(struct pt_regs *ctx)
 {
@@ -45,12 +52,13 @@ int is_bash_with_root(struct pt_regs *ctx)
         // UID is in lower 32 bits
         uint32_t uid = (uint32_t)uid_gid;
         
-        bpf_printk("Bash found, COMM=> %s uid=> %u\n", comm, uid);
+        // bpf_printk("Bash found, COMM=> %s uid=> %u\n", comm, uid);
         
         // if bash is in root
         if(uid==0)
         {
-            bpf_printk("\nROOOOOOOOOT\n");
+            // bpf_printk("\nROOOOOOOOOT\n");
+            bpf_printk("Bash found, COMM=> %s uid=> %u\n", comm, uid);
             return 1;
         }
     }
@@ -219,7 +227,42 @@ int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
     {
         return 0;
     }
-    bpf_printk("Hello from tp_openat_enter\n");
+    
+    // bpf_printk("Hello from tp_openat_enter\n");
+
+    unsigned long pathname_ptr = 0;
+    if (bpf_probe_read(&pathname_ptr, sizeof(pathname_ptr),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rsi))) < 0)
+    {
+        return 0;
+    }
+
+    if (!pathname_ptr)
+        return 0;
+
+    // char fname[MAX_BUF];
+    // if (bpf_probe_read_user_str(fname, sizeof(fname), (const void *)pathname_ptr) > 0)
+    // {
+    //     bpf_printk("openat pathname: %s\n", fname);
+    // }
+    char pathname[MAX_BUF];
+    if (bpf_probe_read_user_str(pathname, sizeof(pathname), (const void *)pathname_ptr) <= 0)
+        return 0;
+
+    uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+
+    // --- look up argv[1] for this PID ---
+    char *argv1 = bpf_map_lookup_elem(&exec_argv1_map, &pid);
+    if (!argv1)
+        return 0;
+
+
+    if (__builtin_memcmp(pathname, argv1, sizeof(argv1)) == 0) {
+        bpf_printk("openat match: pathname=%s equals argv1=%s\n", pathname, argv1);
+        bpf_map_update_elem(&openat_path_map, &pid, &pathname, BPF_ANY);
+    }
+
+
     return 0;
 }
 
@@ -262,7 +305,26 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
 
 
 
-
+    // --- check if argv1 is contained in pathname ---
+    // Simple bounded substring check (unrolled)
+    // int match = 0;
+    // #pragma unroll
+    // for (int i = 0; i < MAX_BUF - 1; i++) {
+    //     int j;
+    //     match = 1;
+    //     #pragma unroll
+    //     for (j = 0; j < MAX_BUF - 1; j++) {
+    //         if (argv1[j] == 0)
+    //             break;
+    //         if (pathname[i + j] == 0 || pathname[i + j] != argv1[j]) {
+    //             match = 0;
+    //             break;
+    //         }
+    //     }
+    //     if (match && argv1[0] != 0) {
+    //         break;
+    //     }
+    // }
 
 
 // // hbash.bpf.c
