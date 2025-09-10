@@ -1,0 +1,20 @@
+# Use a base image with a shell
+FROM ubuntu:24.04
+
+# Install the OpenSSH server
+RUN apt-get update && apt-get install -y openssh-server
+
+# Create a user and set a password
+RUN useradd -m -s /bin/bash myuser && echo "myuser:123" | chpasswd
+
+RUN mkdir -p /run/sshd
+
+# Configure SSH to allow password login
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
+
+# Expose the SSH port (default is 22)
+EXPOSE 22
+
+# Start the SSH daemon when the container launches
+CMD ["/usr/sbin/sshd", "-D"]
