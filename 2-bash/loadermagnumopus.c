@@ -72,19 +72,19 @@ int main()
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp_openat_enter\n");
     }
 
-    // kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "kp__x64_sys_read");
-    // if (!kp__x64_sys_read_prog) {
-    //     fprintf(stderr, "Failed to find program kp__x64_sys_read\n");
-    //     bpf_object__close(obj);
-    //     return 1;
-    // }
-    // kp__x64_sys_read_link = bpf_program__attach(kp__x64_sys_read_prog);
-    // if (libbpf_get_error(kp__x64_sys_read_link)) {
-    //     fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kp__x64_sys_read_link));
-    //     kp__x64_sys_read_link = NULL;
-    // } else {
-    //     printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter kp__x64_sys_read\n");
-    // }
+    kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "kp__x64_sys_read");
+    if (!kp__x64_sys_read_prog) {
+        fprintf(stderr, "Failed to find program kp__x64_sys_read\n");
+        bpf_object__close(obj);
+        return 1;
+    }
+    kp__x64_sys_read_link = bpf_program__attach(kp__x64_sys_read_prog);
+    if (libbpf_get_error(kp__x64_sys_read_link)) {
+        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kp__x64_sys_read_link));
+        kp__x64_sys_read_link = NULL;
+    } else {
+        printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter kp__x64_sys_read\n");
+    }
 
 
     // 
@@ -124,8 +124,8 @@ int main()
     if (tp_read_exit_link)
         bpf_link__destroy(tp_read_exit_link);
 
-    // if(kp__x64_sys_read_link)
-    //     bpf_link__destroy(kp__x64_sys_read_link);
+    if(kp__x64_sys_read_link)
+        bpf_link__destroy(kp__x64_sys_read_link);
 
     bpf_object__close(obj);
 

