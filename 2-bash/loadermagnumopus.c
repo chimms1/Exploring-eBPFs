@@ -15,8 +15,8 @@ void sig_handler(int sig)
 int main()
 {
     struct bpf_object *obj;
-    struct bpf_program *trace_execve_prog, *tp_openat_enter_prog, *tp_read_exit_prog, *kp__x64_sys_read_prog;
-    struct bpf_link *trace_execve_link = NULL, *tp_openat_enter_link = NULL, *tp_read_exit_link = NULL, *kp__x64_sys_read_link = NULL;
+    struct bpf_program *trace_execve_prog, *tp_openat_enter_prog, *tp_read_exit_prog, *tp__sys_read_enter_prog, *kretprobe_read_prog;
+    struct bpf_link *trace_execve_link = NULL, *tp_openat_enter_link = NULL, *tp_read_exit_link = NULL, *tp__sys_read_enter_link = NULL, *kretprobe_read_link=NULL;
     int err;
 
     signal(SIGINT, sig_handler);
@@ -72,16 +72,16 @@ int main()
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp_openat_enter\n");
     }
 
-    kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "tp__sys_read_enter");
-    if (!kp__x64_sys_read_prog) {
+    tp__sys_read_enter_prog = bpf_object__find_program_by_name(obj, "tp__sys_read_enter");
+    if (!tp__sys_read_enter_prog) {
         fprintf(stderr, "Failed to find program tp__sys_read_enter\n");
         bpf_object__close(obj);
         return 1;
     }
-    kp__x64_sys_read_link = bpf_program__attach(kp__x64_sys_read_prog);
-    if (libbpf_get_error(kp__x64_sys_read_link)) {
-        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kp__x64_sys_read_link));
-        kp__x64_sys_read_link = NULL;
+    tp__sys_read_enter_link = bpf_program__attach(tp__sys_read_enter_prog);
+    if (libbpf_get_error(tp__sys_read_enter_link)) {
+        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(tp__sys_read_enter_link));
+        tp__sys_read_enter_link = NULL;
     } else {
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp__sys_read_enter\n");
     }
@@ -100,6 +100,21 @@ int main()
         tp_read_exit_link = NULL;
     } else {
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp_read_exit\n");
+    }
+
+
+    kretprobe_read_prog = bpf_object__find_program_by_name(obj, "kretprobe_read");
+    if (!kretprobe_read_prog) {
+        fprintf(stderr, "Failed to find program kretprobe_read\n");
+        bpf_object__close(obj);
+        return 1;
+    }
+    kretprobe_read_link = bpf_program__attach(kretprobe_read_prog);
+    if (libbpf_get_error(kretprobe_read_link)) {
+        fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kretprobe_read_link));
+        kretprobe_read_link = NULL;
+    } else {
+        printf("Successfully attached kretprobe: kretprobe_read\n");
     }
 
 
@@ -124,8 +139,11 @@ int main()
     if (tp_read_exit_link)
         bpf_link__destroy(tp_read_exit_link);
 
-    if(kp__x64_sys_read_link)
-        bpf_link__destroy(kp__x64_sys_read_link);
+    if(tp__sys_read_enter_link)
+        bpf_link__destroy(tp__sys_read_enter_link);
+
+    if (kretprobe_read_link)
+        bpf_link__destroy(kretprobe_read_link);
 
     bpf_object__close(obj);
 
