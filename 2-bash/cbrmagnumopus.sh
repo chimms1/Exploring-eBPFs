@@ -11,4 +11,4 @@ echo "=> Building container"
 docker build -t 2-hbash .
 
 echo "=> Container built, running now"
-docker run -it --privileged 2-hbash
+docker run -it --privileged -v /sys/kernel/tracing:/sys/kernel/tracing -v /sys/fs/bpf:/sys/fs/bpf 2-hbash

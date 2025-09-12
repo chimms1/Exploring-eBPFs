@@ -72,9 +72,9 @@ int main()
         printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp_openat_enter\n");
     }
 
-    kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "tp__sys_read_enter");
+    kp__x64_sys_read_prog = bpf_object__find_program_by_name(obj, "kp__x64_sys_read");
     if (!kp__x64_sys_read_prog) {
-        fprintf(stderr, "Failed to find program tp__sys_read_enter\n");
+        fprintf(stderr, "Failed to find program kp__x64_sys_read\n");
         bpf_object__close(obj);
         return 1;
     }
@@ -83,7 +83,7 @@ int main()
         fprintf(stderr, "Failed to attach program: %ld\n", libbpf_get_error(kp__x64_sys_read_link));
         kp__x64_sys_read_link = NULL;
     } else {
-        printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter tp__sys_read_enter\n");
+        printf("Successfully attached raw tracepoint: raw_tracepoint/sys_enter kp__x64_sys_read\n");
     }
 
 
